@@ -32,3 +32,90 @@
 (define-constant category-robotics u4)
 (define-constant category-ethics u5)
 (define-constant category-other u6)
+
+;; Data Variables
+(define-data-var proposal-count uint u0)
+(define-data-var total-grants-distributed uint u0)
+(define-data-var milestone-count uint u0)
+(define-data-var min-voting-power uint u10)
+(define-data-var voting-period uint u1440) ;; blocks (~10 days)
+(define-data-var total-voters uint u0)
+
+;; Data Maps
+(define-map proposals uint
+  {
+    researcher: principal,
+    title: (string-ascii 100),
+    description: (string-ascii 500),
+    requested-amount: uint,
+    votes-for: uint,
+    votes-against: uint,
+    status: uint,
+    category: uint,
+    threshold: uint,
+    deadline: uint,
+    created-at: uint
+  }
+)
+
+(define-map votes {proposal-id: uint, voter: principal} 
+  {
+    vote-weight: uint,
+    vote-type: bool, ;; true = for, false = against
+    voted-at: uint
+  }
+)
+
+(define-map voter-power principal uint)
+
+(define-map vote-delegation {delegator: principal}
+  {
+    delegatee: principal,
+    delegated-power: uint,
+    active: bool
+  }
+)
+
+(define-map milestones {proposal-id: uint, milestone-id: uint}
+  {
+    description: (string-ascii 200),
+    amount: uint,
+    completed: bool,
+    verified-by: (optional principal),
+    completion-date: uint
+  }
+)
+
+(define-map progress-reports {proposal-id: uint, report-id: uint}
+  {
+    reporter: principal,
+    content: (string-ascii 500),
+    submitted-at: uint
+  }
+)
+
+(define-map proposal-comments {proposal-id: uint, comment-id: uint}
+  {
+    commenter: principal,
+    comment: (string-ascii 300),
+    timestamp: uint
+  }
+)
+
+(define-map researcher-stats principal
+  {
+    total-proposals: uint,
+    funded-proposals: uint,
+    completed-proposals: uint,
+    total-funds-received: uint,
+    reputation-score: uint
+  }
+)
+
+(define-map category-totals uint
+  {
+    total-proposals: uint,
+    funded-proposals: uint,
+    total-funding: uint
+  }
+)
