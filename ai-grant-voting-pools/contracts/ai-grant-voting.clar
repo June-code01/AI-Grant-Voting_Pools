@@ -202,3 +202,32 @@
 (define-read-only (get-min-voting-power)
   (ok (var-get min-voting-power))
 )
+
+;; Public functions
+;; #[allow(unchecked_data)]
+(define-public (set-voter-power (voter principal) (power uint))
+  (begin
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (map-set voter-power voter power)
+    (var-set total-voters (+ (var-get total-voters) u1))
+    (ok true)
+  )
+)
+
+(define-public (update-voting-period (new-period uint))
+  (begin
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (asserts! (> new-period u0) err-invalid-amount)
+    (var-set voting-period new-period)
+    (ok true)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (update-min-voting-power (new-min uint))
+  (begin
+    (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+    (var-set min-voting-power new-min)
+    (ok true)
+  )
+)
