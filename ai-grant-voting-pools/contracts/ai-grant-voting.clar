@@ -421,207 +421,96 @@
   )
 )
 
-(define-public (cancel-proposal (proposal-id uint))
+;; #[allow(unchecked_data)]
+(define-public (add-milestone (proposal-id uint) (description (string-ascii 200)) (amount uint))
+  (let
+    (
+      (proposal-data (unwrap! (map-get? proposals proposal-id) err-not-found))
+      (milestone-id (var-get milestone-count))
+    )
+    (asserts! (is-eq tx-sender (get researcher proposal-data)) err-unauthorized)
+    (asserts! (is-eq (get status proposal-data) status-funded) err-invalid-status)
+    (asserts! (> amount u0) err-invalid-amount)
+    
+    (map-set milestones {proposal-id: proposal-id, milestone-id: milestone-id}
+      {
+        description: description,
+        amount: amount,
+        completed: false,
+        verified-by: none,
+        completion-date: u0
+      }
+    )
+    
+    (var-set milestone-count (+ milestone-id u1))
+    (ok milestone-id)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (complete-milestone (proposal-id uint) (milestone-id uint))
+  (let
+    (
+      (proposal-data (unwrap! (map-get? proposals proposal-id) err-not-found))
+      (milestone-data (unwrap! (map-get? milestones {proposal-id: proposal-id, milestone-id: milestone-id}) err-milestone-not-found))
+    )
+    (asserts! (is-eq tx-sender (get researcher proposal-data)) err-unauthorized)
+    (asserts! (not (get completed milestone-data)) err-invalid-status)
+    
+    (map-set milestones {proposal-id: proposal-id, milestone-id: milestone-id}
+      (merge milestone-data {
+        completed: true,
+        verified-by: (some contract-owner),
+        completion-date: stacks-block-height
+      }))
+    
+    (ok true)
+  )
+)
+
+;; #[allow(unchecked_data)]
+(define-public (submit-progress-report (proposal-id uint) (report-id uint) (content (string-ascii 500)))
   (let
     (
       (proposal-data (unwrap! (map-get? proposals proposal-id) err-not-found))
     )
     (asserts! (is-eq tx-sender (get researcher proposal-data)) err-unauthorized)
-    (asserts! (is-eq (get status proposal-data) status-active) err-invalid-status)
+    (asserts! (is-eq (get status proposal-data) status-funded) err-invalid-status)
+    (asserts! (is-none (map-get? progress-reports {proposal-id: proposal-id, report-id: report-id})) err-already-reported)
     
-    (map-set proposals proposal-id
-      (merge proposal-data { status: status-cancelled }))
+    (map-set progress-reports {proposal-id: proposal-id, report-id: report-id}
+      {
+        reporter: tx-sender,
+        content: content,
+        submitted-at: stacks-block-height
+      })
     
     (ok true)
   )
 )
 
-;; #[allow(unchecked_data)]
-(define-public (create-proposal 
-    (title (string-ascii 100)) 
-    (description (string-ascii 500))
-    (requested-amount uint) 
-    (threshold uint)
-    (category uint))
-  (let
-    (
-      (proposal-id (var-get proposal-count))
-      (deadline (+ stacks-block-height (var-get voting-period)))
-    )
-    (asserts! (> requested-amount u0) err-invalid-amount)
-    (asserts! (> threshold u0) err-invalid-amount)
-    (asserts! (<= category category-other) err-invalid-category)
-    (asserts! (>= category category-machine-learning) err-invalid-category)
-    
-    (map-set proposals proposal-id
-      {
-        researcher: tx-sender,
-        title: title,
-        description: description,
-        requested-amount: requested-amount,
-        votes-for: u0,
-        votes-against: u0,
-        status: status-active,
-        category: category,
-        threshold: threshold,
-        deadline: deadline,
-        created-at: stacks-block-height
-      }
-    )
-    
-    ;; Update researcher stats
-    (match (map-get? researcher-stats tx-sender)
-      stats (map-set researcher-stats tx-sender
-        (merge stats {total-proposals: (+ (get total-proposals stats) u1)}))
-      (map-set researcher-stats tx-sender
-        {
-          total-proposals: u1,
-          funded-proposals: u0,
-          completed-proposals: u0,
-          total-funds-received: u0,
-          reputation-score: u50
-        })
-    )
-    
-    ;; Update category stats
-    (match (map-get? category-totals category)
-      cat-stats (map-set category-totals category
-        (merge cat-stats {total-proposals: (+ (get total-proposals cat-stats) u1)}))
-      (map-set category-totals category
-        {
-          total-proposals: u1,
-          funded-proposals: u0,
-          total-funding: u0
-        })
-    )
-    
-    (var-set proposal-count (+ proposal-id u1))
-    (ok proposal-id)
-  )
-)
-
-(define-public (vote-for-proposal (proposal-id uint) (vote-for bool))
+(define-public (mark-proposal-complete (proposal-id uint))
   (let
     (
       (proposal-data (unwrap! (map-get? proposals proposal-id) err-not-found))
-      (voter tx-sender)
-      (power (get-effective-voting-power voter))
-    )
-    (asserts! (is-none (map-get? votes {proposal-id: proposal-id, voter: voter})) err-already-voted)
-    (asserts! (is-eq (get status proposal-data) status-active) err-proposal-closed)
-    (asserts! (< stacks-block-height (get deadline proposal-data)) err-deadline-passed)
-    (asserts! (>= power (var-get min-voting-power)) err-insufficient-power)
-    
-    (map-set votes {proposal-id: proposal-id, voter: voter}
-      {
-        vote-weight: power,
-        vote-type: vote-for,
-        voted-at: stacks-block-height
-      }
-    )
-    
-    (if vote-for
-      (map-set proposals proposal-id
-        (merge proposal-data { votes-for: (+ (get votes-for proposal-data) power) }))
-      (map-set proposals proposal-id
-        (merge proposal-data { votes-against: (+ (get votes-against proposal-data) power) }))
-    )
-    (ok true)
-  )
-)
-
-;; #[allow(unchecked_data)]
-(define-public (delegate-vote (delegatee principal) (power-amount uint))
-  (let
-    (
-      (delegator-power (get-voter-power tx-sender))
-    )
-    (asserts! (is-none (map-get? vote-delegation {delegator: tx-sender})) err-already-delegated)
-    (asserts! (<= power-amount delegator-power) err-insufficient-power)
-    (asserts! (> power-amount u0) err-invalid-amount)
-    
-    (map-set vote-delegation {delegator: tx-sender}
-      {
-        delegatee: delegatee,
-        delegated-power: power-amount,
-        active: true
-      }
-    )
-    
-    ;; Transfer power to delegatee
-    (map-set voter-power delegatee 
-      (+ (get-voter-power delegatee) power-amount))
-    
-    (ok true)
-  )
-)
-
-(define-public (revoke-delegation)
-  (let
-    (
-      (delegation-data (unwrap! (map-get? vote-delegation {delegator: tx-sender}) err-not-found))
-    )
-    (asserts! (get active delegation-data) err-invalid-status)
-    
-    ;; Return power from delegatee
-    (map-set voter-power (get delegatee delegation-data)
-      (- (get-voter-power (get delegatee delegation-data)) (get delegated-power delegation-data)))
-    
-    (map-set vote-delegation {delegator: tx-sender}
-      (merge delegation-data {active: false}))
-    
-    (ok true)
-  )
-)
-
-(define-public (finalize-proposal (proposal-id uint))
-  (let
-    (
-      (proposal-data (unwrap! (map-get? proposals proposal-id) err-not-found))
-      (votes-for (get votes-for proposal-data))
-      (votes-against (get votes-against proposal-data))
     )
     (asserts! (is-eq tx-sender contract-owner) err-owner-only)
-    (asserts! (is-eq (get status proposal-data) status-active) err-invalid-status)
-    (asserts! (>= stacks-block-height (get deadline proposal-data)) err-deadline-passed)
+    (asserts! (is-eq (get status proposal-data) status-funded) err-invalid-status)
     
-    (if (and 
-          (>= votes-for (get threshold proposal-data))
-          (> votes-for votes-against))
-      (begin
-        (map-set proposals proposal-id
-          (merge proposal-data { status: status-funded }))
-        
-        (var-set total-grants-distributed 
-          (+ (var-get total-grants-distributed) (get requested-amount proposal-data)))
-        
-        ;; Update researcher stats
-        (match (map-get? researcher-stats (get researcher proposal-data))
-          stats (map-set researcher-stats (get researcher proposal-data)
-            (merge stats {
-              funded-proposals: (+ (get funded-proposals stats) u1),
-              total-funds-received: (+ (get total-funds-received stats) (get requested-amount proposal-data)),
-              reputation-score: (+ (get reputation-score stats) u10)
-            }))
-          false
-        )
-        
-        ;; Update category stats
-        (match (map-get? category-totals (get category proposal-data))
-          cat-stats (map-set category-totals (get category proposal-data)
-            (merge cat-stats {
-              funded-proposals: (+ (get funded-proposals cat-stats) u1),
-              total-funding: (+ (get total-funding cat-stats) (get requested-amount proposal-data))
-            }))
-          false
-        )
-        
-        (ok true))
-      (begin
-        (map-set proposals proposal-id
-          (merge proposal-data { status: status-rejected }))
-        (ok false))
+    (map-set proposals proposal-id
+      (merge proposal-data { status: status-completed }))
+    
+    ;; Update researcher stats
+    (match (map-get? researcher-stats (get researcher proposal-data))
+      stats (map-set researcher-stats (get researcher proposal-data)
+        (merge stats {
+          completed-proposals: (+ (get completed-proposals stats) u1),
+          reputation-score: (+ (get reputation-score stats) u20)
+        }))
+      false
     )
+    
+    (ok true)
   )
 )
 
