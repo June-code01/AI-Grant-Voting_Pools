@@ -119,3 +119,86 @@
     total-funding: uint
   }
 )
+
+;; Read-only functions
+(define-read-only (get-proposal (proposal-id uint))
+  (map-get? proposals proposal-id)
+)
+
+(define-read-only (get-vote (proposal-id uint) (voter principal))
+  (map-get? votes {proposal-id: proposal-id, voter: voter})
+)
+
+(define-read-only (get-voter-power (voter principal))
+  (default-to u0 (map-get? voter-power voter))
+)
+
+(define-read-only (get-proposal-count)
+  (ok (var-get proposal-count))
+)
+
+(define-read-only (get-total-grants-distributed)
+  (ok (var-get total-grants-distributed))
+)
+
+(define-read-only (get-delegation (delegator principal))
+  (map-get? vote-delegation {delegator: delegator})
+)
+
+(define-read-only (get-milestone (proposal-id uint) (milestone-id uint))
+  (map-get? milestones {proposal-id: proposal-id, milestone-id: milestone-id})
+)
+
+(define-read-only (get-researcher-stats (researcher principal))
+  (map-get? researcher-stats researcher)
+)
+
+(define-read-only (get-category-stats (category uint))
+  (map-get? category-totals category)
+)
+
+(define-read-only (is-proposal-active (proposal-id uint))
+  (match (map-get? proposals proposal-id)
+    proposal (ok (and 
+      (is-eq (get status proposal) status-active)
+      (< stacks-block-height (get deadline proposal))
+    ))
+    (err err-not-found)
+  )
+)
+
+(define-read-only (get-effective-voting-power (voter principal))
+  (let
+    (
+      (base-power (get-voter-power voter))
+      (delegation-data (map-get? vote-delegation {delegator: voter}))
+    )
+    (match delegation-data
+      delegation 
+        (if (get active delegation)
+          u0
+          base-power
+        )
+      base-power
+    )
+  )
+)
+
+(define-read-only (get-total-votes (proposal-id uint))
+  (match (map-get? proposals proposal-id)
+    proposal (ok {
+      votes-for: (get votes-for proposal),
+      votes-against: (get votes-against proposal),
+      total: (+ (get votes-for proposal) (get votes-against proposal))
+    })
+    (err err-not-found)
+  )
+)
+
+(define-read-only (get-voting-period)
+  (ok (var-get voting-period))
+)
+
+(define-read-only (get-min-voting-power)
+  (ok (var-get min-voting-power))
+)
